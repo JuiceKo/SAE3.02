@@ -1,103 +1,148 @@
-import os,psutil, platform, time, sys, logging, socket
-
-
-class Server:
-    def __init__(self, host: tuple):
-        self.host = host
-        self.killed = False
-
-    def start(self):
-        while not self.killed:
-            self.server = socket.socket()
-            print("Socket serveur créé")
-            self.__bind(self.host)
-            self.server.listen(1)
-
-            message = ""
-            while not self.killed and message != "reset":
-                print("en attente d'un client")
-                self.conn, self.address = self.server.accept()
-                print(f"Un client avec l'addresse : {self.address} s'est connecté")
-
-                message = ""
-                while not self.killed and message != "reset" and message != "disconnect":
-                    try:
-                        message = self.conn.recv(1024)
-                        #if not msgcl:
-                            #break  # prevents infinite loop on disconnect
-                    except ConnectionResetError:
-                        break
-                    else:
-                        commande = message.decode()
-                        print(f"Message du client: {commande}")
-                        self.__gestionMessage(commande, self.address)
-
-                print("Déconnexion du client...")
-                self.conn.close()
-
-            print("Fermeture du serveur...")
-            self.server.close()
-
-    def __gestionMessage(self, commande: str, addr: tuple):
-        if commande == "kill":
-            print("Le serveur va s'arrêter...")
-            self.killed = True
-        elif commande == "OS":
-            reponse= (platform.system(), platform.release())
-        elif commande == "Name":
-            reponse =(socket.gethostname())
-        elif commande == "CPU":
-            reponse =('Le CPU est utilisé à :', psutil.cpu_percent(4), '%')
-        elif commande == "RAM":
-            reponse = ('Il y a', psutil.virtual_memory()[0] / 1000000000, ' GB de RAM au total,',
-                  psutil.virtual_memory()[3] / 1000000000, 'GB de RAM utilisée et',
-                  psutil.virtual_memory()[4] / 1000000000, 'GB de RAM libre.')
-        elif commande == "IP":
-            hostname = socket.gethostname()
-            IPAddr = socket.gethostbyname(hostname)
-            print("Votre adresse ip est :", IPAddr)
-
-        self.conn.send(reponse.encode())
+import socket, platform, psutil, subprocess, sys
 
 
 
-    
-    def __bind(self, host: tuple):
-        while True:
-            try:
-                self.server.bind(host)
-                logging.debug(f"Socket bound to {host}")
-            except OSError:
-                logging.info(f"Port {host[1]} not available. Retrying...")
-                time.sleep(10)
-                continue
-            else:
-                break
-    
-    def kill(self):
-        try:
-            self.client.send("kill".encode())
-            self.client.close()
-            self.server.close()
-            self.killed = True
-        except Exception:
-            # Do not care about errors here, we're making sure the server is killed
-            pass
 
-if __name__ == "__main__":
-    port = 10000
+def Serveur():
     host = "0.0.0.0"
-    try:
-        port = int(sys.argv[1])
-    except:
-        # Is is either a IndexError or a ValueError, default on port 10000 on both cases
-        logging.warning(f"Invalid or no port given, using default port {port}...")
+    port = 11000
+    message = ""
+    conn = None
+    server_socket = None
+
+    while message != "kill" :
+        message = ""
+        server_socket = socket.socket()
+        server_socket.bind((host, port))
+        server_socket.listen(1)
+        
+        print('En attente de connexion client ...')
+
+        while message != "kill" and message != "reset":
+            message = ""
+            try :
+                conn, addr = server_socket.accept()
+                print(f"Client connecté depuis {addr}")
+
+            except ConnectionError:
+                print ("La connexion à échoué...")
+                break
+            else :
+                while message != "disconnect" and message != "reset" and message != "kill":
+                    reception = conn.recv(1024)
+                    message = reception.decode()
+                    print ("Message du client : ", message)
+
+
+                    if message == 'OS':
+                        reply = f" {platform.system()}, {platform.release()}"
+                        conn.send(reply.encode())
+
+                    elif message == 'info':
+                        hostname = socket.gethostname()
+                        IPAddr = socket.gethostbyname(hostname)
+                        reply = (f"IP : {IPAddr} / Hostname : {hostname}" )
+                        conn.send(reply.encode())
+
+
+                    elif message == 'CPU':
+                        reply = f" Le CPU est utilisé à {psutil.cpu_percent(4)} %"
+                        conn.send(reply.encode())
+
+
+                    elif message == 'RAM':
+                        reply = f"Il y a {psutil.virtual_memory()[0] / 1000000000} GB de RAM au total, {psutil.virtual_memory()[3] / 1000000000} GB de RAM utilisée et {psutil.virtual_memory()[4] / 1000000000} GB de RAM libre"
+                        conn.send(reply.encode())
+
+
+                    elif message == 'IP':
+                        hostname = socket.gethostname()
+                        IPAddr = socket.gethostbyname(hostname)
+                        reply = (f"Votre adresse ip est : {IPAddr}")
+                        conn.send(reply.encode())
+
+
+                    elif message == 'Name':
+                        reply = socket.gethostname()
+                        conn.send(reply.encode())
+
+
+                    elif message[0:4] == 'DOS:':
+                        if sys.platform == "win32":
+                            p = message.split(':')
+                            commande = p[1]
+                            pipe = subprocess.Popen(commande, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                                 encoding='cp850', shell=True)
+
+                            reply = f"résultat commande : \n {pipe.stdout.read()} {pipe.stderr.read()}"
+                            conn.send(reply.encode())
+                        else:
+                            reply = f"Cette commande est impossible sur un système différent de Windows"
+                            conn.send(reply.encode())
+
+
+                    elif message[0:6] == 'Linux:':
+                        if sys.platform.startswith("linux"):
+                            p = message.split(':')
+                            commande = p[1]
+                            pipe = subprocess.Popen(commande, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                                 encoding='cp850', shell=True)
+
+                            reply = f"résultat commande : \n {pipe.stdout.read()} {pipe.stderr.read()}"
+                            conn.send(reply.encode())
+                        else:
+                            reply = f"Cette commande est impossible sur un système différent de Linux"
+                            conn.send(reply.encode())
+
+                    elif message[0:11] == 'Powershell:':
+                        if sys.platform == "win32":
+                            p = message.split(':')
+                            commande = p[1]
+                            p = subprocess.Popen(commande, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                                 encoding='cp850', shell=True)
+
+                            reply = f"résultat commande : \n {p.stdout.read()} {p.stderr.read()}"
+                            conn.send(reply.encode())
+                        else:
+                            reply = f"Cette commande est impossible sur un système différent de Windows"
+                            conn.send(reply.encode())
+
+                    elif message[0:6] == 'Shell:':
+                        p = message.split(':')
+                        commande = p[1]
+                        pipe = subprocess.Popen(commande, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                                encoding='cp850', shell=True)
+
+                        reply = f"résultat commande : \n {pipe.stdout.read()} {pipe.stderr.read()}"
+                        conn.send(reply.encode())
 
 
 
-    server = Server((host, port))
-    try:
-        server.start()
-    except KeyboardInterrupt:
-        logging.info("KeyboardInterrupt: killing server...")
-        server.kill()
+                    elif message == "reset":
+                        reply = ""
+                        conn.send(reply.encode())
+
+                    elif message == "kill":
+                        reply = " "
+                        conn.send(reply.encode())
+
+                    elif message == "disconnect":
+                        reply = " "
+                        conn.send(reply.encode())
+
+
+                    else :
+                        reply = "Commande non reconnu par le système"
+                        conn.send(reply.encode())
+
+                reply = f"Vous allez être déconnecté du serveur... "
+                conn.send(reply.encode())
+                conn.close()
+                print ("Connexion rompue... ")
+
+        server_socket.close()
+        print ("Serveur fermé ...")
+
+
+if __name__ == '__main__':
+    Serveur()
